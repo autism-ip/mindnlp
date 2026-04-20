@@ -52,6 +52,57 @@ output = triton_gelu(x)
 output = triton_swiglu(gate, up)
 ```
 
+## 优化管线 (Pipeline)
+
+完整的 Qwen 模型 Triton 优化管线，包含 5 个阶段：
+
+```python
+from mindnlp.triton.pipeline import run_pipeline, run_all
+
+# 运行指定阶段
+config = {
+    'model': 'qwen2.5-0.5b',
+    'device': 'cpu',
+    'benchmark': {
+        'iterations': 100,
+        'warmup': 5,
+        'shapes': [[72, 512, 4864]]
+    },
+    'e2e': {
+        'iterations': 100,
+        'warmup': 5,
+        'configs': [[24, 512, 896, 4864]]
+    }
+}
+results = run_pipeline(config, ['profiling', 'test', 'benchmark', 'e2e', 'report'])
+
+# 运行全部阶段
+results = run_all(config)
+```
+
+### 管线阶段
+
+| 阶段 | 说明 |
+|------|------|
+| `profiling` | 分析 Qwen 模型性能数据，识别瓶颈算子 |
+| `test` | 验证 Triton kernel 数值精度 (阈值 < 1e-5) |
+| `benchmark` | 单算子性能对比 (Triton vs Native) |
+| `e2e` | 端到端 MLP 性能验证 |
+| `report` | 生成汇总报告和优化建议 |
+
+### CLI 使用
+
+```bash
+# 运行全部阶段
+python -m mindnlp.triton.pipeline --model qwen2.5-0.5b --phase all
+
+# 运行指定阶段
+python -m mindnlp.triton.pipeline --model qwen2-0.5b --phase profiling,benchmark
+
+# 输出到文件
+python -m mindnlp.triton.pipeline --model qwen2.5-0.5b --phase all --output results.json
+```
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -63,18 +114,32 @@ output = triton_swiglu(gate, up)
 
 ```
 mindnlp.triton/
+├── __init__.py                 # 主入口导出
+├── README.md                   # 本文档
 ├── kernels/
-│   ├── activations.py      # GELU, SwiGLU Triton 实现
-│   ├── benchmark.py         # 性能测试工具
-│   └── mindspore_adapter.py # MindSpore 适配层
+│   ├── __init__.py
+│   ├── activations.py          # Triton GELU/SwiGLU 实现
+│   ├── benchmark.py            # 性能测试工具
+│   └── mindspore_adapter.py     # MindSpore 适配层 (MSGELU, MSSwiGLU)
 ├── backends/
-│   ├── detect.py           # 后端自动检测
-│   └── ascend.py           # Ascend NPU 支持
+│   ├── __init__.py
+│   ├── detect.py                # 后端自动检测
+│   └── ascend.py                # Ascend NPU 支持
 ├── integration/
-│   └── mindtorch_v2.py     # mindtorch_v2 集成
+│   ├── __init__.py
+│   └── mindtorch_v2.py         # mindtorch_v2 集成
+├── pipeline/
+│   ├── __init__.py             # run_pipeline, run_all
+│   ├── __main__.py             # CLI 入口
+│   ├── profiling.py            # Phase 1: 性能分析
+│   ├── testing.py              # Phase 2: 精度验证
+│   ├── benchmark.py            # Phase 3: 算子对比
+│   ├── e2e.py                  # Phase 4: 端到端测试
+│   ├── report.py               # Phase 5: 报告生成
+│   └── runner.py               # 管线调度器
 └── docs/
-    ├── ANALYSIS_REPORT.md   # 瓶颈分析报告
-    └── PERFORMANCE_REPORT.md # 性能测试报告
+    ├── ANALYSIS_REPORT.md      # 瓶颈分析报告
+    └── PERFORMANCE_REPORT.md    # 性能测试报告
 ```
 
 ## 适用模型
@@ -112,6 +177,20 @@ result = benchmark_swiglu(
 )
 ```
 
+## Profiling 数据
+
+Qwen2.5-0.5B 模型各算子时间分布：
+
+| 算子 | 时间 (ms) | 占比 | 类型 |
+|------|-----------|------|------|
+| down_proj | 4383.5 | 30.5% | GEAM |
+| gate_proj | 3862.2 | 26.8% | GEAM |
+| up_proj | 3831.0 | 26.6% | GEAM |
+| act_fn | 421.2 | 2.9% | Elementwise |
+| RMSNorm | 143.1 | 1.0% | RMSNorm |
+
+**关键发现**: MLP 层占 86.9%，但其中激活函数仅占 2.9%
+
 ## 注意事项
 
 1. **Triton-Ascend 限制**：
@@ -120,6 +199,8 @@ result = benchmark_swiglu(
    - 大型 kernel 可能编译不稳定
 
 2. **自动降级**：当 Triton 不可用时，自动回退到原生实现
+
+3. **NPU 依赖**：`testing`, `benchmark`, `e2e` 阶段需要 `torch_npu` 支持
 
 ## 许可证
 
