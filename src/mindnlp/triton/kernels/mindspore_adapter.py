@@ -6,10 +6,13 @@ enabling seamless integration with MindSpore models.
 """
 
 import os
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import mindspore
 from mindspore import nn, ops
+
+if TYPE_CHECKING:
+    import torch
 
 from mindnlp.triton.kernels.activations import (
     TritonGELU as _TritonGELU,
@@ -29,7 +32,7 @@ class _TorchTensorToMindSpore:
     def __init__(self):
         self._temp_tensors = []
 
-    def convert_input(self, x: mindspore.Tensor) -> Tuple[mindspore.Tensor, any]:
+    def convert_input(self, x: mindspore.Tensor):
         """Convert MindSpore tensor to torch tensor for Triton kernel.
 
         Args:
@@ -43,7 +46,7 @@ class _TorchTensorToMindSpore:
         self._temp_tensors.append(torch_tensor)
         return torch_tensor, None
 
-    def convert_output(self, torch_tensor: torch.Tensor) -> mindspore.Tensor:
+    def convert_output(self, torch_tensor):
         """Convert torch tensor back to MindSpore tensor.
 
         Args:
@@ -67,7 +70,7 @@ def _to_torch_tensor(x: mindspore.Tensor):
     return torch.from_numpy(x.asnumpy()).contiguous()
 
 
-def _to_mindspore_tensor(x) -> mindspore.Tensor:
+def _to_mindspore_tensor(x):
     """Convert torch tensor to MindSpore tensor."""
     if isinstance(x, mindspore.Tensor):
         return x
