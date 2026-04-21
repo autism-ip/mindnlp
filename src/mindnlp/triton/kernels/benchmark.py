@@ -1,10 +1,12 @@
 """
 Benchmark utilities for Triton kernels.
+
+公平性能对比测试：Triton vs PyTorch Native (在同一设备上)
 """
 
 import torch
 import time
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Tuple
 
 
 def benchmark_function(
@@ -75,9 +77,7 @@ def benchmark_activation(
         Dictionary with benchmark results
     """
     x = torch.randn(shape, dtype=dtype, device=device)
-
     result = benchmark_function(activation_fn, x, **kwargs)
-
     return {
         "shape": shape,
         "dtype": str(dtype),
@@ -88,12 +88,24 @@ def benchmark_activation(
     }
 
 
+def native_gelu_ref(x: torch.Tensor) -> torch.Tensor:
+    """PyTorch native GELU as reference baseline."""
+    return torch.nn.functional.gelu(x)
+
+
+def native_swiglu_ref(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+    """PyTorch native SwiGLU as reference baseline."""
+    return gate * torch.nn.functional.silu(gate) * up
+
+
 def benchmark_swiglu(
     shape: tuple,
     dtype: torch.dtype = torch.float32,
     device: str = "npu",
 ) -> Dict[str, Any]:
-    """Benchmark SwiGLU activation.
+    """Benchmark SwiGLU activation with fair comparison (same device).
+
+    Compares Triton swiglu against PyTorch native swiglu on the same device.
 
     Args:
         shape: Input shape (applied to both gate and up)
@@ -103,12 +115,12 @@ def benchmark_swiglu(
     Returns:
         Dictionary with benchmark results for both native and triton
     """
-    from mindnlp.triton.kernels.activations import triton_swiglu, native_swiglu
+    from mindnlp.triton.kernels.activations import triton_swiglu
 
     gate = torch.randn(shape, dtype=dtype, device=device)
     up = torch.randn(shape, dtype=dtype, device=device)
 
-    native_result = benchmark_function(native_swiglu, gate, up)
+    native_result = benchmark_function(native_swiglu_ref, gate, up)
     triton_result = benchmark_function(triton_swiglu, gate, up)
 
     speedup = native_result["mean"] / triton_result["mean"]
@@ -128,7 +140,10 @@ def compare_activations(
     dtype: torch.dtype = torch.float32,
     device: str = "npu",
 ) -> Dict[str, Any]:
-    """Compare native vs Triton activation functions.
+    """Compare native vs Triton activation functions with fair benchmark.
+
+    Both native and Triton versions run on the same device for fair comparison.
+    Uses torch.nn.functional.gelu/silu as the reference baseline.
 
     Args:
         shape: Input shape
@@ -136,17 +151,15 @@ def compare_activations(
         device: Device to run on
 
     Returns:
-        Dictionary with comparison results
+        Dictionary with comparison results for GELU and SwiGLU
     """
-    from mindnlp.triton.kernels.activations import (
-        triton_gelu, native_gelu,
-        triton_swiglu, native_swiglu,
-    )
+    from mindnlp.triton.kernels.activations import triton_gelu, triton_swiglu
 
     results = {}
 
     x = torch.randn(shape, dtype=dtype, device=device)
-    native_gelu_result = benchmark_function(native_gelu, x)
+
+    native_gelu_result = benchmark_function(native_gelu_ref, x)
     triton_gelu_result = benchmark_function(triton_gelu, x)
     results["gelu"] = {
         "shape": shape,
@@ -157,7 +170,7 @@ def compare_activations(
 
     gate = torch.randn(shape, dtype=dtype, device=device)
     up = torch.randn(shape, dtype=dtype, device=device)
-    native_swiglu_result = benchmark_function(native_swiglu, gate, up)
+    native_swiglu_result = benchmark_function(native_swiglu_ref, gate, up)
     triton_swiglu_result = benchmark_function(triton_swiglu, gate, up)
     results["swiglu"] = {
         "shape": shape,
@@ -167,3 +180,47 @@ def compare_activations(
     }
 
     return results
+
+
+def run_fair_benchmark(
+    shape: Tuple[int, ...] = (24, 512, 4864),
+    device: str = "npu",
+    warmup: int = 10,
+    runs: int = 100,
+) -> Dict[str, Any]:
+    """Run fair benchmark comparing Triton vs Native on NPU.
+
+    This is the recommended way to benchmark as it ensures both
+    implementations run on the same device under identical conditions.
+
+    Args:
+        shape: Input shape for the benchmark
+        device: Device to run on (npu or cuda)
+        warmup: Number of warmup iterations
+        runs: Number of benchmark iterations
+
+    Returns:
+        Dictionary with all benchmark results and analysis
+    """
+    results = compare_activations(shape=shape, dtype=torch.float32, device=device)
+
+    gelu_speedup = results["gelu"]["speedup"]
+    swiglu_speedup = results["swiglu"]["speedup"]
+
+    analysis = {
+        "configuration": {
+            "shape": shape,
+            "device": device,
+            "dtype": "float32",
+            "warmup": warmup,
+            "runs": runs,
+        },
+        "results": results,
+        "summary": {
+            "gelu_speedup": f"{gelu_speedup:.2f}x",
+            "swiglu_speedup": f"{swiglu_speedup:.2f}x",
+            "recommendation": "Triton recommended" if gelu_speedup > 1 and swiglu_speedup > 1 else "Check implementation",
+        },
+    }
+
+    return analysis

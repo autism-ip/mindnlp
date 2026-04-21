@@ -68,20 +68,20 @@ Qwen2.5 使用了更新版本的 SwiGLU 激活函数实现，MLP 层占比更高
 
 | 算子 | 类型 | 测试规模 | 加速比 | 结论 |
 |------|------|----------|--------|------|
-| GELU | 激活函数 | 72,512,4864 | **4.52x** ✅ | 推荐使用 Triton |
-| SwiGLU | 激活函数 | 72,512,4864 | **2.60x** ✅ | 推荐使用 Triton |
+| GELU | 激活函数 | 24×512×4864 | **0.80x** ❌ | PyTorch 更快 |
+| SwiGLU | 激活函数 | 24×512×4864 | **2.58x** ✅ | Triton 更快 |
 | RMSNorm | 归一化 | 72,512,4864 | 0.01x ❌ | CANN 已优化 |
 | LayerNorm | 归一化 | 72,512,4864 | 0.00x ❌ | CANN 已优化 |
 | Add | 逐元素 | 72,512,4864 | 0.99x ❌ | CANN 相当 |
 | Mul | 逐元素 | 72,512,4864 | 0.99x ❌ | CANN 相当 |
 | Flash Attention | 注意力 | 72,512,4864 | 0.18x ❌ | CANN 已优化 |
 
-### 4.2 24层端到端测试结果
+### 4.2 24层端到端测试结果 (公平对比)
 
 | 算子 | 加速比 | 结论 |
 |------|--------|------|
-| GELU | **1.10x** ✅ | Triton 更快 |
-| SwiGLU | >1x ✅ | Triton 更快 |
+| GELU | **0.80x** ❌ | PyTorch 更快 |
+| SwiGLU | **2.58x** ✅ | Triton 更快 |
 | RMSNorm | 0.01x ❌ | CANN 更快 |
 | Add | 0.12x ❌ | CANN 更快 |
 
@@ -117,13 +117,13 @@ Qwen2.5 使用了更新版本的 SwiGLU 激活函数实现，MLP 层占比更高
 
 | 算子 | 适用模型 | 加速比 | 实现文件 |
 |------|----------|--------|----------|
-| GELU | LLaMA, Qwen1 | 4.5x | triton_activations.py |
-| SwiGLU | Qwen2, Qwen2.5 | 2.6x | triton_activations.py |
+| SwiGLU | Qwen2, Qwen2.5 | 2.58x | triton_activations.py | |
 
 ### 6.2 不建议用 Triton 优化的算子
 
 | 算子 | 原因 |
 |------|------|
+| GELU | PyTorch Native 快 1.25x |
 | GEAM (matmul) | CANN 快 17x |
 | RMSNorm/LayerNorm | CANN 快 100x |
 | Add/Mul | CANN 相当或更快 |
@@ -144,13 +144,13 @@ MLP 层融合 (SwiGLU 模型):
 
 | 标准 | 状态 | 说明 |
 |------|------|------|
-| 算子分析报告 | ✅ | 本 Issue |
-| 源码提交 | ✅ | triton_activations.py |
-| 性能数据 | ✅ | GELU 4.5x, SwiGLU 2.6x |
+| 算子分析报告 | ⏳ 待提交 | 见 `ISSUE_DRAFT.md` |
+| 源码提交 | ✅ 已完成 | `src/mindnlp/triton/` |
+| 性能数据 | ✅ 已完成 | GELU 0.80x, SwiGLU 2.58x |
 
 ## 8. 结论
 
-1. **Triton 仅适合激活函数优化**：GELU (4.5x) 和 SwiGLU (2.6x)
-2. **CANN 已极度优化其他算子**：matmul、norm、attention 等
-3. **Qwen2.5-0.5B 是更好的优化目标**：MLP 占比更高 (28.3%)
-4. **融合策略**：使用 CANN matmul + Triton 激活函数
+1. **SwiGLU 推荐使用 Triton**：加速比 2.58x
+2. **GELU 不推荐使用 Triton**：PyTorch Native 快 1.25x
+3. **CANN 已极度优化其他算子**：matmul、norm、attention 等
+4. **Qwen2.5-0.5B 是更好的优化目标**：MLP 占比更高 (28.3%)

@@ -48,12 +48,19 @@ def swiglu_kernel(
 
 def triton_gelu(x: torch.Tensor) -> torch.Tensor:
     """GELU activation using Triton. 4.46x faster than native on large tensors."""
+    if x.device.type == 'cpu':
+        x = x.to('npu')
     out = torch.empty_like(x)
     xnumel = x.numel()
     XBLOCK = 32768
     XBLOCK_SUB = 8192
     num_blocks = (xnumel + XBLOCK - 1) // XBLOCK
     grid = (min(num_blocks, 65535),)
+    try:
+        from mindnlp.triton import _patch_torch_npu_for_triton
+        _patch_torch_npu_for_triton()
+    except ImportError:
+        pass
     gelu_kernel[grid](x, out, xnumel, XBLOCK, XBLOCK_SUB)
     return out
 
@@ -61,12 +68,20 @@ def triton_gelu(x: torch.Tensor) -> torch.Tensor:
 def triton_swiglu(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
     """SwiGLU (gate * silu(gate) * up) using Triton. 2.57x faster than native."""
     assert gate.shape == up.shape, f"Shape mismatch: {gate.shape} vs {up.shape}"
+    if gate.device.type == 'cpu':
+        gate = gate.to('npu')
+        up = up.to('npu')
     out = torch.empty_like(gate)
     xnumel = gate.numel()
     XBLOCK = 32768
     XBLOCK_SUB = 8192
     num_blocks = (xnumel + XBLOCK - 1) // XBLOCK
     grid = (min(num_blocks, 65535),)
+    try:
+        from mindnlp.triton import _patch_torch_npu_for_triton
+        _patch_torch_npu_for_triton()
+    except ImportError:
+        pass
     swiglu_kernel[grid](gate, up, out, xnumel, XBLOCK, XBLOCK_SUB)
     return out
 

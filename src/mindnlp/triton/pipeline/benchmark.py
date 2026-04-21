@@ -38,6 +38,16 @@ def _measure(fn, args: list, warmup: int, iterations: int, device: str) -> float
     return (time.perf_counter() - start) / iterations * 1000
 
 
+def _reset_ms_generator():
+    """Reset MindSpore default generator to fix Step tensor issue."""
+    try:
+        from mindtorch._C import default_generator
+        default_generator._seed = torch.Tensor([0])
+        default_generator._offset = torch.Tensor([0])
+    except Exception:
+        pass
+
+
 def run(config: dict) -> dict:
     """Run benchmark tests for activation kernels.
 
@@ -55,12 +65,13 @@ def run(config: dict) -> dict:
 
     results = {"gelu": [], "swiglu": []}
 
-    # Use direct Triton call for npu/cuda, native for cpu
-    gelu_impl = triton_gelu if device in ("npu", "cuda") else native_gelu
-    swiglu_impl = triton_swiglu if device in ("npu", "cuda") else native_swiglu
+    use_triton = device in ("npu", "cuda")
+    gelu_impl = triton_gelu if use_triton else native_gelu
+    swiglu_impl = triton_swiglu if use_triton else native_swiglu
+
+    _reset_ms_generator()
 
     for shape in shapes:
-        torch.manual_seed(42)
         x = torch.randn(*shape, dtype=torch.float32, device=device).view(-1)
         gate = torch.randn(*shape, dtype=torch.float32, device=device).view(-1)
         up = torch.randn(*shape, dtype=torch.float32, device=device).view(-1)

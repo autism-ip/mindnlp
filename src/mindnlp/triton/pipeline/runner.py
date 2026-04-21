@@ -16,6 +16,17 @@ PHASES = {
 }
 
 
+def _reset_ms_generator():
+    """Reset MindSpore default generator to fix Step tensor issue."""
+    try:
+        from mindtorch._C import default_generator
+        import torch
+        default_generator._seed = torch.Tensor([0])
+        default_generator._offset = torch.Tensor([0])
+    except Exception:
+        pass
+
+
 def run_pipeline(config: dict, phases: list) -> dict:
     """Run the optimization pipeline for specified phases.
 
@@ -26,6 +37,8 @@ def run_pipeline(config: dict, phases: list) -> dict:
     Returns:
         Dictionary containing results from all executed phases
     """
+    _reset_ms_generator()
+
     results = {
         "meta": {
             "model": config.get("model", "unknown"),

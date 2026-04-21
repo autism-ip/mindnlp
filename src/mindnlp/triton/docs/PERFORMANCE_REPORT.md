@@ -51,16 +51,23 @@
 - CANN: 8.5.0
 - Device: Ascend NPU
 
-### 3.2 实测结果 (Ascend NPU)
+### 3.2 实测结果 (Ascend NPU, 公平对比)
 
 **配置**: (24, 512, 4864) - Qwen2-0.5B 24层批量
+**测试条件**: Triton 和 PyTorch Native 都在 NPU 上运行
 
-| 算子 | Native | Triton | 加速比 |
-|------|--------|--------|--------|
-| **GELU** | 41.96ms | 1.01ms | **41.68x** |
-| **SwiGLU** | 9.00ms | 1.26ms | **7.16x** |
+| 算子 | PyTorch Native | Triton | 加速比 | 结论 |
+|------|----------------|--------|--------|------|
+| **GELU** | 0.75ms | 0.94ms | **0.80x** | PyTorch 更快 |
+| **SwiGLU** | 3.06ms | 1.19ms | **2.58x** | Triton 更快 |
 
-数值精度：< 1e-6
+**数值精度**：
+- GELU: max diff ≈ 0 (与 native exact 匹配)
+- SwiGLU: max diff ≈ 0 (与 native 匹配)
+
+**注**：
+- 早期报告中的 41.68x/7.16x 加速比是基于 NPU Triton vs CPU Native 的不公平对比
+- 公平对比结果：GELU 0.80x, SwiGLU 2.58x
 
 ### 3.3 失败方案 (加速比 < 1，已剔除)
 
@@ -81,30 +88,31 @@
 
 ## 4. 适用场景
 
-| 模型 | 激活函数 | Triton 优化 | 实际加速比 |
-|------|----------|-------------|------------|
-| Qwen2 (0.5B) | SwiGLU | ✅ triton_swiglu | **7.16x** |
-| Qwen2.5 | SwiGLU | ✅ triton_swiglu | **7.16x** |
-| LLaMA | GELU | ✅ triton_gelu | **41.68x** |
-| 标准 MLP | silu | ❌ 无收益 | CANN 已优化 |
+| 模型 | 激活函数 | Triton 优化 | 加速比 | 推荐 |
+|------|----------|-------------|--------|------|
+| Qwen2 (0.5B) | SwiGLU | ✅ triton_swiglu | **2.58x** | ✅ 推荐 |
+| Qwen2.5 | SwiGLU | ✅ triton_swiglu | **2.58x** | ✅ 推荐 |
+| LLaMA | GELU | ⚠️ triton_gelu | **0.80x** | ❌ 不推荐 |
+| 标准 MLP | silu | ❌ 无收益 | CANN 已优化 | ❌ 不推荐 |
 
 ## 5. 结论与建议
 
 ### 5.1 结论
 
-1. **Triton 适用于元素级融合算子**：GELU、SwiGLU 等激活函数
-2. **CANN matmul 不可超越**：Triton matmul 比 CANN 慢 17x
-3. **激活函数优化有效**：使用 Triton 实现 GELU/SwiGLU 可获得显著加速
+1. **数值精度正确**：Triton GELU 和 SwiGLU 与 PyTorch Native 实现匹配
+2. **SwiGLU 推荐使用 Triton**：公平对比加速比 **2.58x**
+3. **GELU 不推荐使用 Triton**：公平对比加速比 **0.80x** (PyTorch 更快)
+4. **CANN matmul 不可超越**：Triton matmul 比 CANN 慢 17x
+5. **基准测试方法重要**：早期 41.68x/7.16x 是 NPU vs CPU 的不公平对比
 
 ### 5.2 建议
 
 1. **对于使用 SwiGLU 的模型**（如 Qwen2、Qwen2.5）：
-   - 使用 `triton_swiglu()` 替代原生实现
-   - 预期激活函数加速 **7x+**
+   - 使用 `triton_swiglu()` 或 `swiglu()`
+   - 预期激活函数加速 **2.58x**
 
 2. **对于使用 GELU 的模型**（如 LLaMA）：
-   - 使用 `triton_gelu()` 替代原生实现
-   - 预期激活函数加速 **40x+**
+   - 使用 PyTorch Native `torch.nn.functional.gelu` 性能更好
 
 3. **不要尝试用 Triton 替代 CANN matmul**：
    - 性能差距太大 (17x)

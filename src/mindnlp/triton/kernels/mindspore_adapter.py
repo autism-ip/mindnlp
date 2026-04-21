@@ -8,22 +8,17 @@ enabling seamless integration with MindSpore models.
 import os
 from typing import TYPE_CHECKING, Optional, Tuple
 
-import mindspore
-from mindspore import nn, ops
-
 if TYPE_CHECKING:
     import torch
-
-from mindnlp.triton.kernels.activations import (
-    TritonGELU as _TritonGELU,
-    TritonSwiGLU as _TritonSwiGLU,
-    triton_gelu as _triton_gelu,
-    triton_swiglu as _triton_swiglu,
-    native_gelu as _native_gelu,
-    native_swiglu as _native_swiglu,
-)
+    import mindspore
 
 TRITON_ENABLED = os.environ.get("MINNLP_TRITON", "1") == "1"
+
+
+def _get_mindspore():
+    """Lazy import of mindspore to avoid import-time hanging."""
+    import mindspore
+    return mindspore
 
 
 class _TorchTensorToMindSpore:
@@ -32,7 +27,7 @@ class _TorchTensorToMindSpore:
     def __init__(self):
         self._temp_tensors = []
 
-    def convert_input(self, x: mindspore.Tensor):
+    def convert_input(self, x: "mindspore.Tensor"):
         """Convert MindSpore tensor to torch tensor for Triton kernel.
 
         Args:
@@ -46,7 +41,7 @@ class _TorchTensorToMindSpore:
         self._temp_tensors.append(torch_tensor)
         return torch_tensor, None
 
-    def convert_output(self, torch_tensor):
+    def convert_output(self, torch_tensor: "torch.Tensor") -> "mindspore.Tensor":
         """Convert torch tensor back to MindSpore tensor.
 
         Args:
@@ -57,14 +52,15 @@ class _TorchTensorToMindSpore:
         """
         numpy_array = torch_tensor.cpu().numpy()
         self._temp_tensors.clear()
-        return mindspore.Tensor(numpy_array)
+        ms = _get_mindspore()
+        return ms.Tensor(numpy_array)
 
     def cleanup(self):
         """Cleanup temporary tensors."""
         self._temp_tensors.clear()
 
 
-def _to_torch_tensor(x: mindspore.Tensor):
+def _to_torch_tensor(x: "mindspore.Tensor"):
     """Convert MindSpore tensor to torch tensor."""
     import torch
     return torch.from_numpy(x.asnumpy()).contiguous()
@@ -72,12 +68,13 @@ def _to_torch_tensor(x: mindspore.Tensor):
 
 def _to_mindspore_tensor(x):
     """Convert torch tensor to MindSpore tensor."""
-    if isinstance(x, mindspore.Tensor):
+    ms = _get_mindspore()
+    if isinstance(x, ms.Tensor):
         return x
-    return mindspore.Tensor(x.asnumpy())
+    return ms.Tensor(x.asnumpy())
 
 
-def gelu(x: mindspore.Tensor) -> mindspore.Tensor:
+def gelu(x) -> "mindspore.Tensor":
     """GELU activation with MindSpore tensor interface.
 
     Args:
@@ -88,12 +85,13 @@ def gelu(x: mindspore.Tensor) -> mindspore.Tensor:
     """
     if TRITON_ENABLED:
         torch_x = _to_torch_tensor(x)
+        from mindnlp.triton.kernels.activations import triton_gelu as _triton_gelu
         torch_out = _triton_gelu(torch_x)
         return _to_mindspore_tensor(torch_out)
     return _native_gelu_ms(x)
 
 
-def swiglu(gate: mindspore.Tensor, up: mindspore.Tensor) -> mindspore.Tensor:
+def swiglu(gate, up) -> "mindspore.Tensor":
     """SwiGLU activation with MindSpore tensor interface.
 
     Args:
@@ -106,23 +104,28 @@ def swiglu(gate: mindspore.Tensor, up: mindspore.Tensor) -> mindspore.Tensor:
     if TRITON_ENABLED:
         torch_gate = _to_torch_tensor(gate)
         torch_up = _to_torch_tensor(up)
+        from mindnlp.triton.kernels.activations import triton_swiglu as _triton_swiglu
         torch_out = _triton_swiglu(torch_gate, torch_up)
         return _to_mindspore_tensor(torch_out)
     return _native_swiglu_ms(gate, up)
 
 
-def _native_gelu_ms(x: mindspore.Tensor) -> mindspore.Tensor:
+def _native_gelu_ms(x: "mindspore.Tensor") -> "mindspore.Tensor":
     """Native MindSpore GELU implementation."""
+    ms = _get_mindspore()
+    ops = ms.ops
     return x * 0.5 * (1.0 + ops.erf(x / ops.sqrt(ops.tensor(2.0, x.dtype))))
 
 
-def _native_swiglu_ms(gate: mindspore.Tensor, up: mindspore.Tensor) -> mindspore.Tensor:
+def _native_swiglu_ms(gate: "mindspore.Tensor", up: "mindspore.Tensor") -> "mindspore.Tensor":
     """Native MindSpore SwiGLU implementation."""
+    ms = _get_mindspore()
+    ops = ms.ops
     sigmoid_gate = gate / (1.0 + ops.exp(-gate))
     return gate * sigmoid_gate * up
 
 
-class MSGELU(nn.Cell):
+class MSGELU:
     """MindSpore GELU activation using Triton kernels.
 
     This module provides a drop-in replacement for mindspore.nn.GELU
@@ -133,14 +136,13 @@ class MSGELU(nn.Cell):
     """
 
     def __init__(self, approximate: str = "none"):
-        super().__init__()
         self.approximate = approximate
 
-    def construct(self, x: mindspore.Tensor) -> mindspore.Tensor:
+    def construct(self, x):
         return gelu(x)
 
 
-class MSSwiGLU(nn.Cell):
+class MSSwiGLU:
     """MindSpore SwiGLU activation using Triton kernels.
 
     This module provides a drop-in replacement for SwiGLU activation
@@ -151,49 +153,50 @@ class MSSwiGLU(nn.Cell):
     """
 
     def __init__(self, dim: int = -1):
-        super().__init__()
         self.dim = dim
 
-    def construct(self, gate: mindspore.Tensor, up: mindspore.Tensor) -> mindspore.Tensor:
+    def construct(self, gate, up):
         return swiglu(gate, up)
 
 
-class TritonGELU(nn.Cell):
+class TritonGELU:
     """MindSpore Cell wrapper for Triton GELU kernel.
 
     Provides seamless integration with MindSpore autograd.
     """
 
     def __init__(self):
-        super().__init__()
+        pass
 
-    def construct(self, x: mindspore.Tensor) -> mindspore.Tensor:
+    def construct(self, x):
         if TRITON_ENABLED:
             torch_x = _to_torch_tensor(x)
+            from mindnlp.triton.kernels.activations import triton_gelu as _triton_gelu
             torch_out = _triton_gelu(torch_x)
             return _to_mindspore_tensor(torch_out)
         return _native_gelu_ms(x)
 
 
-class TritonSwiGLU(nn.Cell):
+class TritonSwiGLU:
     """MindSpore Cell wrapper for Triton SwiGLU kernel.
 
     Provides seamless integration with MindSpore autograd.
     """
 
     def __init__(self):
-        super().__init__()
+        pass
 
-    def construct(self, gate: mindspore.Tensor, up: mindspore.Tensor) -> mindspore.Tensor:
+    def construct(self, gate, up):
         if TRITON_ENABLED:
             torch_gate = _to_torch_tensor(gate)
             torch_up = _to_torch_tensor(up)
+            from mindnlp.triton.kernels.activations import triton_swiglu as _triton_swiglu
             torch_out = _triton_swiglu(torch_gate, torch_up)
             return _to_mindspore_tensor(torch_out)
         return _native_swiglu_ms(gate, up)
 
 
-def get_ms_activation(name: str) -> Optional[nn.Cell]:
+def get_ms_activation(name: str):
     """Get MindSpore activation module by name.
 
     Args:
