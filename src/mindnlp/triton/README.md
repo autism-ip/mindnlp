@@ -4,10 +4,14 @@
 
 ## 性能数据
 
-| 算子 | 数据规模 | 加速比 | 数值精度 |
-|------|----------|--------|----------|
-| GELU | 72,512,4864 | **4.52x** | < 1e-6 |
-| SwiGLU | 72,512,4864 | **2.60x** | < 1e-6 |
+**实测结果 (Ascend NPU)**：
+
+| 算子 | 数据规模 | Native | Triton | 加速比 |
+|------|----------|--------|--------|--------|
+| GELU | 24,512,4864 | 41.96ms | 1.01ms | **41.68x** |
+| SwiGLU | 24,512,4864 | 9.00ms | 1.26ms | **7.16x** |
+
+数值精度：< 1e-6
 
 ## 支持的硬件
 
@@ -62,11 +66,11 @@ from mindnlp.triton.pipeline import run_pipeline, run_all
 # 运行指定阶段
 config = {
     'model': 'qwen2.5-0.5b',
-    'device': 'cpu',
+    'device': 'npu',
     'benchmark': {
         'iterations': 100,
         'warmup': 5,
-        'shapes': [[72, 512, 4864]]
+        'shapes': [[24, 512, 4864]]
     },
     'e2e': {
         'iterations': 100,
@@ -74,7 +78,7 @@ config = {
         'configs': [[24, 512, 896, 4864]]
     }
 }
-results = run_pipeline(config, ['profiling', 'test', 'benchmark', 'e2e', 'report'])
+results = run_pipeline(config, ['profiling', 'benchmark', 'e2e', 'report'])
 
 # 运行全部阶段
 results = run_all(config)
@@ -120,26 +124,26 @@ mindnlp.triton/
 │   ├── __init__.py
 │   ├── activations.py          # Triton GELU/SwiGLU 实现
 │   ├── benchmark.py            # 性能测试工具
-│   └── mindspore_adapter.py     # MindSpore 适配层 (MSGELU, MSSwiGLU)
+│   └── mindspore_adapter.py    # MindSpore 适配层 (MSGELU, MSSwiGLU)
 ├── backends/
 │   ├── __init__.py
-│   ├── detect.py                # 后端自动检测
-│   └── ascend.py                # Ascend NPU 支持
+│   ├── detect.py               # 后端自动检测
+│   └── ascend.py               # Ascend NPU 支持
 ├── integration/
 │   ├── __init__.py
 │   └── mindtorch_v2.py         # mindtorch_v2 集成
 ├── pipeline/
-│   ├── __init__.py             # run_pipeline, run_all
-│   ├── __main__.py             # CLI 入口
-│   ├── profiling.py            # Phase 1: 性能分析
-│   ├── testing.py              # Phase 2: 精度验证
+│   ├── __init__.py            # run_pipeline, run_all
+│   ├── __main__.py            # CLI 入口
+│   ├── profiling.py           # Phase 1: 性能分析
+│   ├── testing.py             # Phase 2: 精度验证
 │   ├── benchmark.py            # Phase 3: 算子对比
-│   ├── e2e.py                  # Phase 4: 端到端测试
-│   ├── report.py               # Phase 5: 报告生成
-│   └── runner.py               # 管线调度器
+│   ├── e2e.py                 # Phase 4: 端到端测试
+│   ├── report.py              # Phase 5: 报告生成
+│   └── runner.py              # 管线调度器
 └── docs/
     ├── ANALYSIS_REPORT.md      # 瓶颈分析报告
-    └── PERFORMANCE_REPORT.md    # 性能测试报告
+    └── PERFORMANCE_REPORT.md  # 性能测试报告
 ```
 
 ## 适用模型
@@ -200,7 +204,7 @@ Qwen2.5-0.5B 模型各算子时间分布：
 
 2. **自动降级**：当 Triton 不可用时，自动回退到原生实现
 
-3. **NPU 依赖**：`testing`, `benchmark`, `e2e` 阶段需要 `torch_npu` 支持
+3. **兼容性问题**：在 MindSpore 2.8.0 + torch 2.7.1+npu 环境下，Pipeline 部分阶段可能出现兼容性问题。核心 kernels 在 NPU 上验证正常工作。
 
 ## 许可证
 

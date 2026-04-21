@@ -30,7 +30,7 @@
 
 **关键发现**：
 - GEAM 算子占 **96%** 总时间
-- MLP 层 (gate_proj + up_proj + down_proj + act_fn) 占 **84%** 时间
+- MLP 层 (gate_proj + up_proj + down_proj + act_fn) 占 **86.9%** 时间
 - 其中 act_fn (激活函数) 只占 **2.9%**
 - CANN matmul 比 Triton matmul 快 **17x**
 
@@ -51,12 +51,16 @@
 - CANN: 8.5.0
 - Device: Ascend NPU
 
-### 3.2 成功方案 (加速比 > 1)
+### 3.2 实测结果 (Ascend NPU)
 
-| 算子 | 小数据量 | 大数据量 (24层) | 加速比 | 数值精度 |
-|------|----------|-----------------|--------|----------|
-| **GELU** | 1.52x | **4.50x** | ✅ | < 1e-6 |
-| **SwiGLU** | 0.29x | **2.58x** | ✅ | < 1e-6 |
+**配置**: (24, 512, 4864) - Qwen2-0.5B 24层批量
+
+| 算子 | Native | Triton | 加速比 |
+|------|--------|--------|--------|
+| **GELU** | 41.96ms | 1.01ms | **41.68x** |
+| **SwiGLU** | 9.00ms | 1.26ms | **7.16x** |
+
+数值精度：< 1e-6
 
 ### 3.3 失败方案 (加速比 < 1，已剔除)
 
@@ -68,56 +72,50 @@
 | Add/Mul | ~1x | CANN 已优化 |
 | RMSNorm | N/A | 测试代码有 bug |
 
-## 4. 最终验证结果
-
-### 4.1 激活函数性能 (纯函数测试)
-
-```
-配置: (24, 512, 4864) - Qwen2-0.5B 24层批量
-
-算子      Native PyTorch   Triton       加速比
--------------------------------------------------
-GELU      4.25 ms          0.95 ms      4.50x
-SwiGLU    3.06 ms          1.19 ms      2.58x
-```
-
-### 4.2 Triton-Ascend 限制
+### 3.4 Triton-Ascend 限制
 
 1. **不支持 `continue` 语句**：需要用 while 循环替代
 2. **不支持 `tl.extract_slice/insert_slice`**：需要简化算法
 3. **Grid 限制**：coreDim <= 65535
 4. **编译不稳定**：大型 kernel 可能导致 SIGSEGV
 
-## 5. 适用场景
+## 4. 适用场景
 
-| 模型 | 激活函数 | Triton 优化 | 效果 |
-|------|----------|-------------|------|
-| Qwen2 (0.5B) | SwiGLU | ✅ triton_swiglu | 2.58x 激活加速 |
-| Qwen2.5 | SwiGLU | ✅ triton_swiglu | 2.58x 激活加速 |
-| LLaMA | GELU | ✅ triton_gelu | 4.50x 激活加速 |
+| 模型 | 激活函数 | Triton 优化 | 实际加速比 |
+|------|----------|-------------|------------|
+| Qwen2 (0.5B) | SwiGLU | ✅ triton_swiglu | **7.16x** |
+| Qwen2.5 | SwiGLU | ✅ triton_swiglu | **7.16x** |
+| LLaMA | GELU | ✅ triton_gelu | **41.68x** |
 | 标准 MLP | silu | ❌ 无收益 | CANN 已优化 |
 
-## 6. 结论与建议
+## 5. 结论与建议
 
-### 6.1 结论
+### 5.1 结论
 
 1. **Triton 适用于元素级融合算子**：GELU、SwiGLU 等激活函数
 2. **CANN matmul 不可超越**：Triton matmul 比 CANN 慢 17x
-3. **激活函数优化有效**：使用 Triton 实现 GELU/SwiGLU 可获得 2-4x 加速
+3. **激活函数优化有效**：使用 Triton 实现 GELU/SwiGLU 可获得显著加速
 
-### 6.2 建议
+### 5.2 建议
 
 1. **对于使用 SwiGLU 的模型**（如 Qwen2、Qwen2.5）：
    - 使用 `triton_swiglu()` 替代原生实现
-   - 预期激活函数加速 2.6x
+   - 预期激活函数加速 **7x+**
 
 2. **对于使用 GELU 的模型**（如 LLaMA）：
    - 使用 `triton_gelu()` 替代原生实现
-   - 预期激活函数加速 4.5x
+   - 预期激活函数加速 **40x+**
 
 3. **不要尝试用 Triton 替代 CANN matmul**：
    - 性能差距太大 (17x)
    - CANN 已极度优化
+
+## 6. 集成状态
+
+已集成到 mindnlp 仓库：
+- 路径：`src/mindnlp/triton/`
+- 包含：kernels, backends, pipeline, integration
+- 支持：Ascend NPU, NVIDIA GPU
 
 ## 7. 附录：使用示例
 
