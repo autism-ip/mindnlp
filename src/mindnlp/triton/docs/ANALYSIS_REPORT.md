@@ -117,7 +117,7 @@ Qwen2.5 使用了更新版本的 SwiGLU 激活函数实现，MLP 层占比更高
 
 | 算子 | 适用模型 | 加速比 | 实现文件 |
 |------|----------|--------|----------|
-| SwiGLU | Qwen2, Qwen2.5 | 2.58x | triton_activations.py | |
+| SwiGLU | Qwen2, Qwen2.5 | 2.58x | activations.py |
 
 ### 6.2 不建议用 Triton 优化的算子
 
@@ -144,7 +144,7 @@ MLP 层融合 (SwiGLU 模型):
 
 | 标准 | 状态 | 说明 |
 |------|------|------|
-| 算子分析报告 | ⏳ 待提交 | 见 `ISSUE_DRAFT.md` |
+| 算子分析报告 | ✅ 已完成 | 见 `ISSUE_DRAFT.md` |
 | 源码提交 | ✅ 已完成 | `src/mindnlp/triton/` |
 | 性能数据 | ✅ 已完成 | GELU 0.80x, SwiGLU 2.58x |
 

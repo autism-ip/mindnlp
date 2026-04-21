@@ -1,9 +1,12 @@
 """
 Triton Element-wise Activation Kernels.
 
-Verified speedups on Ascend 910B4 (Triton-Ascend 3.2.0):
-  GELU:   4.46x on shape (72, 512, 4864)
-  SwiGLU: 2.57x on shape (72, 512, 4864)
+Fair benchmark speedups on Ascend NPU (Triton-Ascend 3.2.0, same device comparison):
+  SwiGLU: 2.58x on shape (24, 512, 4864)  - Triton faster than PyTorch Native
+  GELU:   0.80x on shape (24, 512, 4864)  - PyTorch Native faster, not recommended
+
+Note: Earlier 4.46x/2.57x numbers were NPU vs CPU comparisons (unfair).
+      Fair comparison (both on NPU) shows SwiGLU benefits, GELU does not.
 """
 
 import os
@@ -47,7 +50,7 @@ def swiglu_kernel(
 
 
 def triton_gelu(x: torch.Tensor) -> torch.Tensor:
-    """GELU activation using Triton. 4.46x faster than native on large tensors."""
+    """GELU activation using Triton. 0.80x speedup - PyTorch Native is faster."""
     if x.device.type == 'cpu':
         x = x.to('npu')
     out = torch.empty_like(x)
@@ -66,7 +69,7 @@ def triton_gelu(x: torch.Tensor) -> torch.Tensor:
 
 
 def triton_swiglu(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
-    """SwiGLU (gate * silu(gate) * up) using Triton. 2.57x faster than native."""
+    """SwiGLU (gate * silu(gate) * up) using Triton. 2.58x faster than native on NPU."""
     assert gate.shape == up.shape, f"Shape mismatch: {gate.shape} vs {up.shape}"
     if gate.device.type == 'cpu':
         gate = gate.to('npu')
