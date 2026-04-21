@@ -68,8 +68,8 @@ from mindnlp.triton.kernels.mindspore_adapter import (
     MSSwiGLU,
     TritonGELU as MSTritonGELU,
     TritonSwiGLU as MSTritonSwiGLU,
-    gelu as ms_gelu,
-    swiglu as ms_swiglu,
+    gelu,
+    swiglu,
     get_ms_activation,
 )
 
@@ -89,7 +89,7 @@ __all__ = [
     "MSSwiGLU",
     "MSTritonGELU",
     "MSTritonSwiGLU",
-    "ms_gelu",
-    "ms_swiglu",
+    "gelu",
+    "swiglu",
     "get_ms_activation",
 ]

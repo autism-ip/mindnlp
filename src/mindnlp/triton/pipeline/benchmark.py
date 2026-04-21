@@ -6,8 +6,12 @@ over N iterations and computes speedup.
 """
 
 from mindnlp.triton.kernels.activations import (
-    triton_gelu, native_gelu,
-    triton_swiglu, native_swiglu,
+    gelu as gelu_fn,
+    swiglu as swiglu_fn,
+    triton_gelu,
+    native_gelu,
+    triton_swiglu,
+    native_swiglu,
 )
 
 import time
@@ -51,6 +55,10 @@ def run(config: dict) -> dict:
 
     results = {"gelu": [], "swiglu": []}
 
+    # Use direct Triton call for npu/cuda, native for cpu
+    gelu_impl = triton_gelu if device in ("npu", "cuda") else native_gelu
+    swiglu_impl = triton_swiglu if device in ("npu", "cuda") else native_swiglu
+
     for shape in shapes:
         torch.manual_seed(42)
         x = torch.randn(*shape, dtype=torch.float32, device=device).view(-1)
@@ -58,22 +66,22 @@ def run(config: dict) -> dict:
         up = torch.randn(*shape, dtype=torch.float32, device=device).view(-1)
 
         native_gelu_ms = _measure(native_gelu, [x], warmup, iterations, device)
-        triton_gelu_ms = _measure(triton_gelu, [x], warmup, iterations, device)
+        gelu_ms = _measure(gelu_impl, [x], warmup, iterations, device)
 
         native_swiglu_ms = _measure(native_swiglu, [gate, up], warmup, iterations, device)
-        triton_swiglu_ms = _measure(triton_swiglu, [gate, up], warmup, iterations, device)
+        swiglu_ms = _measure(swiglu_impl, [gate, up], warmup, iterations, device)
 
         results["gelu"].append({
             "shape": shape,
             "native_ms": round(native_gelu_ms, 4),
-            "triton_ms": round(triton_gelu_ms, 4),
-            "speedup": round(native_gelu_ms / triton_gelu_ms, 3),
+            "triton_ms": round(gelu_ms, 4),
+            "speedup": round(native_gelu_ms / gelu_ms, 3) if gelu_ms > 0 else 0,
         })
         results["swiglu"].append({
             "shape": shape,
             "native_ms": round(native_swiglu_ms, 4),
-            "triton_ms": round(triton_swiglu_ms, 4),
-            "speedup": round(native_swiglu_ms / triton_swiglu_ms, 3),
+            "triton_ms": round(swiglu_ms, 4),
+            "speedup": round(native_swiglu_ms / swiglu_ms, 3) if swiglu_ms > 0 else 0,
         })
 
     return results

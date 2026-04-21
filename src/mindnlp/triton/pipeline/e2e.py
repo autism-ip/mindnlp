@@ -7,7 +7,10 @@ Compares against native silu baseline.
 Config shape: [batch, seq_len, hidden_size, intermediate_size]
 """
 
-from mindnlp.triton.kernels.activations import triton_gelu, triton_swiglu
+from mindnlp.triton.kernels.activations import (
+    triton_gelu,
+    triton_swiglu,
+)
 
 import time
 import torch
@@ -78,6 +81,10 @@ def run(config: dict) -> dict:
 
     results = {"mlp_with_gelu": [], "mlp_with_swiglu": []}
 
+    # Use native for CPU (no Triton support)
+    mlp_gelu = _mlp_triton_gelu if device in ("npu", "cuda") else _mlp_native_silu
+    mlp_swiglu = _mlp_triton_swiglu if device in ("npu", "cuda") else _mlp_native_silu
+
     for cfg in configs:
         batch, seq_len, hidden_size, intermediate_size = cfg
         torch.manual_seed(42)
@@ -88,20 +95,20 @@ def run(config: dict) -> dict:
         args = (x, gate_w, up_w, down_w)
 
         native_ms = _measure_mlp(_mlp_native_silu, args, warmup, iterations, device)
-        gelu_ms = _measure_mlp(_mlp_triton_gelu, args, warmup, iterations, device)
-        swiglu_ms = _measure_mlp(_mlp_triton_swiglu, args, warmup, iterations, device)
+        gelu_ms = _measure_mlp(mlp_gelu, args, warmup, iterations, device)
+        swiglu_ms = _measure_mlp(mlp_swiglu, args, warmup, iterations, device)
 
         results["mlp_with_gelu"].append({
             "config": cfg,
             "native_ms": round(native_ms, 4),
             "triton_ms": round(gelu_ms, 4),
-            "speedup": round(native_ms / gelu_ms, 3),
+            "speedup": round(native_ms / gelu_ms, 3) if gelu_ms > 0 else 0,
         })
         results["mlp_with_swiglu"].append({
             "config": cfg,
             "native_ms": round(native_ms, 4),
             "triton_ms": round(swiglu_ms, 4),
-            "speedup": round(native_ms / swiglu_ms, 3),
+            "speedup": round(native_ms / swiglu_ms, 3) if swiglu_ms > 0 else 0,
         })
 
     return results
