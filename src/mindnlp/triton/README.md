@@ -1,6 +1,6 @@
 # MindNLP Triton 模块
 
-基于 MindSpore 框架的高性能 Triton 算子实现，用于 Ascend NPU 和 NVIDIA GPU。
+基于 MindSpore 框架的高性能 Triton 算子实现，用于 Ascend NPU。
 
 ## 目录
 
@@ -102,7 +102,7 @@ print(f"SwiGLU output shape: {output_swiglu.shape}")
 
 ## 性能数据
 
-**实测结果 (Ascend NPU, 公平对比)**：
+**实测结果 (Ascend NPU)**：
 
 | 算子 | 数据规模 | PyTorch Native | Triton | 加速比 | 说明 |
 |------|----------|----------------|--------|--------|------|
