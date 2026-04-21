@@ -141,6 +141,9 @@ class MSGELU:
     def construct(self, x):
         return gelu(x)
 
+    def __call__(self, x):
+        return self.construct(x)
+
 
 class MSSwiGLU:
     """MindSpore SwiGLU activation using Triton kernels.
@@ -157,6 +160,9 @@ class MSSwiGLU:
 
     def construct(self, gate, up):
         return swiglu(gate, up)
+
+    def __call__(self, gate, up):
+        return self.construct(gate, up)
 
 
 class TritonGELU:
@@ -176,6 +182,9 @@ class TritonGELU:
             return _to_mindspore_tensor(torch_out)
         return _native_gelu_ms(x)
 
+    def __call__(self, x):
+        return self.construct(x)
+
 
 class TritonSwiGLU:
     """MindSpore Cell wrapper for Triton SwiGLU kernel.
@@ -194,6 +203,9 @@ class TritonSwiGLU:
             torch_out = _triton_swiglu(torch_gate, torch_up)
             return _to_mindspore_tensor(torch_out)
         return _native_swiglu_ms(gate, up)
+
+    def __call__(self, gate, up):
+        return self.construct(gate, up)
 
 
 def get_ms_activation(name: str):
